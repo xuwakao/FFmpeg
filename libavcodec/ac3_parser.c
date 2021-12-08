@@ -162,9 +162,7 @@ int avpriv_ac3_parse_header(AC3HeaderInfo **phdr, const uint8_t *buf,
         return AVERROR(ENOMEM);
     hdr = *phdr;
 
-    err = init_get_bits8(&gb, buf, size);
-    if (err < 0)
-        return AVERROR_INVALIDDATA;
+    init_get_bits8(&gb, buf, size);
     err = ff_ac3_parse_header(&gb, hdr);
     if (err < 0)
         return AVERROR_INVALIDDATA;

@@ -70,7 +70,6 @@ static int hnm_read_header(AVFormatContext *s)
     Hnm4DemuxContext *hnm = s->priv_data;
     AVIOContext *pb = s->pb;
     AVStream *vst;
-    int ret;
 
     /* default context members */
     hnm->pts = 0;
@@ -114,10 +113,10 @@ static int hnm_read_header(AVFormatContext *s)
     vst->codecpar->codec_tag  = 0;
     vst->codecpar->width      = hnm->width;
     vst->codecpar->height     = hnm->height;
-    if ((ret = ff_alloc_extradata(vst->codecpar, 1)) < 0)
-        return ret;
+    vst->codecpar->extradata  = av_mallocz(1);
 
-    vst->codecpar->extradata[0] = hnm->version;
+    vst->codecpar->extradata_size = 1;
+    memcpy(vst->codecpar->extradata, &hnm->version, 1);
 
     vst->start_time = 0;
 

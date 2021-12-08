@@ -100,7 +100,7 @@ int avcodec_dct_init(AVDCT *dsp)
 
 #if CONFIG_IDCTDSP
     {
-        IDCTDSPContext idsp = {0};
+        IDCTDSPContext idsp;
         ff_idctdsp_init(&idsp, avctx);
         COPY(idsp, idct);
         COPY(idsp, idct_permutation);

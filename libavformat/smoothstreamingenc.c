@@ -331,11 +331,12 @@ static int ism_write_header(AVFormatContext *s)
             goto fail;
         }
 
-        os->ctx = ctx = avformat_alloc_context();
+        ctx = avformat_alloc_context();
         if (!ctx || ff_copy_whiteblacklists(ctx, s) < 0) {
             ret = AVERROR(ENOMEM);
             goto fail;
         }
+        os->ctx = ctx;
         ctx->oformat = oformat;
         ctx->interrupt_callback = s->interrupt_callback;
 
@@ -355,13 +356,12 @@ static int ism_write_header(AVFormatContext *s)
 
         av_dict_set_int(&opts, "ism_lookahead", c->lookahead_count, 0);
         av_dict_set(&opts, "movflags", "frag_custom", 0);
-        ret = avformat_write_header(ctx, &opts);
-        av_dict_free(&opts);
-        if (ret < 0) {
+        if ((ret = avformat_write_header(ctx, &opts)) < 0) {
              goto fail;
         }
         os->ctx_inited = 1;
         avio_flush(ctx->pb);
+        av_dict_free(&opts);
         s->streams[i]->time_base = st->time_base;
         if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             c->has_video = 1;

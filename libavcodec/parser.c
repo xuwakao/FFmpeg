@@ -330,9 +330,6 @@ int ff_combine_frame(ParseContext *pc, int next,
     for (; pc->overread > 0; pc->overread--)
         pc->buffer[pc->index++] = pc->buffer[pc->overread_index++];
 
-    if (next > *buf_size)
-        return AVERROR(EINVAL);
-
     /* flush remaining if EOF */
     if (!*buf_size && next == END_NOT_FOUND)
         next = 0;

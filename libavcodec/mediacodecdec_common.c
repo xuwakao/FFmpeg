@@ -209,7 +209,7 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
 
     if (avctx->pkt_timebase.num && avctx->pkt_timebase.den) {
         frame->pts = av_rescale_q(info->presentationTimeUs,
-                                      AV_TIME_BASE_Q,
+                                      av_make_q(1, 1000000),
                                       avctx->pkt_timebase);
     } else {
         frame->pts = info->presentationTimeUs;
@@ -298,7 +298,7 @@ static int mediacodec_wrap_sw_buffer(AVCodecContext *avctx,
      *   * 0-sized avpackets are pushed to flush remaining frames at EOS */
     if (avctx->pkt_timebase.num && avctx->pkt_timebase.den) {
         frame->pts = av_rescale_q(info->presentationTimeUs,
-                                      AV_TIME_BASE_Q,
+                                      av_make_q(1, 1000000),
                                       avctx->pkt_timebase);
     } else {
         frame->pts = info->presentationTimeUs;
@@ -389,14 +389,13 @@ static int mediacodec_dec_parse_format(AVCodecContext *avctx, MediaCodecDecConte
     s->stride = s->stride > 0 ? s->stride : s->width;
 
     AMEDIAFORMAT_GET_INT32(s->slice_height, "slice-height", 0);
+    s->slice_height = s->slice_height > 0 ? s->slice_height : s->height;
 
-    if (strstr(s->codec_name, "OMX.Nvidia.") && s->slice_height == 0) {
+    if (strstr(s->codec_name, "OMX.Nvidia.")) {
         s->slice_height = FFALIGN(s->height, 16);
     } else if (strstr(s->codec_name, "OMX.SEC.avc.dec")) {
         s->slice_height = avctx->height;
         s->stride = avctx->width;
-    } else if (s->slice_height == 0) {
-        s->slice_height = s->height;
     }
 
     AMEDIAFORMAT_GET_INT32(s->color_format, "color-format", 1);
@@ -451,7 +450,6 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
     s->eos = 0;
     atomic_fetch_add(&s->serial, 1);
     atomic_init(&s->hw_buffer_count, 0);
-    s->current_input_buffer = -1;
 
     status = ff_AMediaCodec_flush(codec);
     if (status < 0) {
@@ -479,7 +477,6 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
     atomic_init(&s->refcount, 1);
     atomic_init(&s->hw_buffer_count, 0);
     atomic_init(&s->serial, 1);
-    s->current_input_buffer = -1;
 
     pix_fmt = ff_get_format(avctx, pix_fmts);
     if (pix_fmt == AV_PIX_FMT_MEDIACODEC) {
@@ -564,17 +561,16 @@ fail:
 }
 
 int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
-                           AVPacket *pkt, bool wait)
+                           AVPacket *pkt)
 {
     int offset = 0;
     int need_draining = 0;
     uint8_t *data;
-    ssize_t index = s->current_input_buffer;
+    ssize_t index;
     size_t size;
     FFAMediaCodec *codec = s->codec;
     int status;
-    int64_t input_dequeue_timeout_us = wait ? INPUT_DEQUEUE_TIMEOUT_US : 0;
-    int64_t pts;
+    int64_t input_dequeue_timeout_us = INPUT_DEQUEUE_TIMEOUT_US;
 
     if (s->flushing) {
         av_log(avctx, AV_LOG_ERROR, "Decoder is flushing and cannot accept new buffer "
@@ -591,19 +587,17 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
     }
 
     while (offset < pkt->size || (need_draining && !s->draining)) {
-        if (index < 0) {
-            index = ff_AMediaCodec_dequeueInputBuffer(codec, input_dequeue_timeout_us);
-            if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
-                av_log(avctx, AV_LOG_TRACE, "No input buffer available, try again later\n");
-                break;
-            }
 
-            if (index < 0) {
-                av_log(avctx, AV_LOG_ERROR, "Failed to dequeue input buffer (status=%zd)\n", index);
-                return AVERROR_EXTERNAL;
-            }
+        index = ff_AMediaCodec_dequeueInputBuffer(codec, input_dequeue_timeout_us);
+        if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
+            av_log(avctx, AV_LOG_TRACE, "No input buffer available, try again later\n");
+            break;
         }
-        s->current_input_buffer = -1;
+
+        if (index < 0) {
+            av_log(avctx, AV_LOG_ERROR, "Failed to dequeue input buffer (status=%zd)\n", index);
+            return AVERROR_EXTERNAL;
+        }
 
         data = ff_AMediaCodec_getInputBuffer(codec, index, &size);
         if (!data) {
@@ -611,13 +605,13 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
             return AVERROR_EXTERNAL;
         }
 
-        pts = pkt->pts;
-        if (pts != AV_NOPTS_VALUE && avctx->pkt_timebase.num && avctx->pkt_timebase.den) {
-            pts = av_rescale_q(pts, avctx->pkt_timebase, AV_TIME_BASE_Q);
-        }
-
         if (need_draining) {
+            int64_t pts = pkt->pts;
             uint32_t flags = ff_AMediaCodec_getBufferFlagEndOfStream(codec);
+
+            if (s->surface) {
+                pts = av_rescale_q(pts, avctx->pkt_timebase, av_make_q(1, 1000000));
+            }
 
             av_log(avctx, AV_LOG_DEBUG, "Sending End Of Stream signal\n");
 
@@ -633,9 +627,15 @@ int ff_mediacodec_dec_send(AVCodecContext *avctx, MediaCodecDecContext *s,
             s->draining = 1;
             break;
         } else {
+            int64_t pts = pkt->pts;
+
             size = FFMIN(pkt->size - offset, size);
             memcpy(data, pkt->data + offset, size);
             offset += size;
+
+            if (avctx->pkt_timebase.num && avctx->pkt_timebase.den) {
+                pts = av_rescale_q(pts, avctx->pkt_timebase, av_make_q(1, 1000000));
+            }
 
             status = ff_AMediaCodec_queueInputBuffer(codec, index, 0, size, pts, 0);
             if (status < 0) {
@@ -764,18 +764,6 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
     return AVERROR(EAGAIN);
 }
 
-/*
-* ff_mediacodec_dec_flush returns 0 if the flush cannot be performed on
-* the codec (because the user retains frames). The codec stays in the
-* flushing state.
-*
-* ff_mediacodec_dec_flush returns 1 if the flush can actually be
-* performed on the codec. The codec leaves the flushing state and can
-* process again packets.
-*
-* ff_mediacodec_dec_flush returns a negative value if an error has
-* occurred.
-*/
 int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
     if (!s->surface || atomic_load(&s->refcount) == 1) {

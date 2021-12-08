@@ -57,13 +57,7 @@ static void transform4x4(vec_s16 src_01, vec_s16 src_23, vec_s32 res[4],
     e1 = vec_msums(src_02, trans4[2], zero);
     o1 = vec_msums(src_13, trans4[3], zero);
 
-    switch(shift) {
-    case  7: add = vec_sl(vec_splat_s32(1), vec_splat_u32( 7 - 1)); break;
-    case 10: add = vec_sl(vec_splat_s32(1), vec_splat_u32(10 - 1)); break;
-    case 12: add = vec_sl(vec_splat_s32(1), vec_splat_u32(12 - 1)); break;
-    default: abort();
-    }
-
+    add = vec_sl(vec_splat_s32(1), vec_splat_u32(shift - 1));
     e0 = vec_add(e0, add);
     e1 = vec_add(e1, add);
 
@@ -76,14 +70,7 @@ static void transform4x4(vec_s16 src_01, vec_s16 src_23, vec_s32 res[4],
 static void scale(vec_s32 res[4], vec_s16 res_packed[2], int shift)
 {
     int i;
-    vec_u32 v_shift;
-
-    switch(shift) {
-    case  7: v_shift = vec_splat_u32(7) ; break;
-    case 10: v_shift = vec_splat_u32(10); break;
-    case 12: v_shift = vec_splat_u32(12); break;
-    default: abort();
-    }
+    vec_u32 v_shift = vec_splat_u32(shift);
 
     for (i = 0; i < 4; i++)
         res[i] = vec_sra(res[i], v_shift);

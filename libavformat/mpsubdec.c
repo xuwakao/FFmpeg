@@ -97,10 +97,8 @@ static int mpsub_read_header(AVFormatContext *s)
     }
 
     st = avformat_new_stream(s, NULL);
-    if (!st) {
-        res = AVERROR(ENOMEM);
-        goto end;
-    }
+    if (!st)
+        return AVERROR(ENOMEM);
     avpriv_set_pts_info(st, 64, pts_info.den, pts_info.num);
     st->codecpar->codec_type = AVMEDIA_TYPE_SUBTITLE;
     st->codecpar->codec_id   = AV_CODEC_ID_TEXT;
@@ -108,9 +106,6 @@ static int mpsub_read_header(AVFormatContext *s)
     ff_subtitles_queue_finalize(s, &mpsub->q);
 
 end:
-    if (res < 0)
-        ff_subtitles_queue_clean(&mpsub->q);
-
     av_bprint_finalize(&buf, NULL);
     return res;
 }

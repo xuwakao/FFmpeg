@@ -359,10 +359,6 @@ int avio_feof(AVIOContext *s)
 {
     if(!s)
         return 0;
-    if(s->eof_reached){
-        s->eof_reached=0;
-        fill_buffer(s);
-    }
     return s->eof_reached;
 }
 
@@ -570,7 +566,7 @@ static void fill_buffer(AVIOContext *s)
     }
 
     /* make buffer smaller in case it ended up large after probing */
-    if (s->read_packet && s->orig_buffer_size && s->buffer_size > s->orig_buffer_size && len >= s->orig_buffer_size) {
+    if (s->read_packet && s->orig_buffer_size && s->buffer_size > s->orig_buffer_size) {
         if (dst == s->buffer && s->buf_ptr != dst) {
             int ret = ffio_set_buf_size(s, s->orig_buffer_size);
             if (ret < 0)
@@ -578,17 +574,20 @@ static void fill_buffer(AVIOContext *s)
 
             s->checksum_ptr = dst = s->buffer;
         }
+        av_assert0(len >= s->orig_buffer_size);
         len = s->orig_buffer_size;
     }
 
-    len = read_packet_wrapper(s, dst, len);
-    if (len == AVERROR_EOF) {
+    if (s->read_packet)
+        len = s->read_packet(s->opaque, dst, len);
+    else
+        len = 0;
+    if (len <= 0) {
         /* do not modify buffer if EOF reached so that a seek back can
            be done without rereading data */
         s->eof_reached = 1;
-    } else if (len < 0) {
-        s->eof_reached = 1;
-        s->error= len;
+        if (len < 0)
+            s->error = len;
     } else {
         s->pos += len;
         s->buf_ptr = dst;
@@ -654,15 +653,15 @@ int avio_read(AVIOContext *s, unsigned char *buf, int size)
         if (len == 0 || s->write_flag) {
             if((s->direct || size > s->buffer_size) && !s->update_checksum) {
                 // bypass the buffer and read data directly into buf
-                len = read_packet_wrapper(s, buf, size);
-                if (len == AVERROR_EOF) {
+                if(s->read_packet)
+                    len = s->read_packet(s->opaque, buf, size);
+
+                if (len <= 0) {
                     /* do not modify buffer if EOF reached so that a seek back can
                     be done without rereading data */
                     s->eof_reached = 1;
-                    break;
-                } else if (len < 0) {
-                    s->eof_reached = 1;
-                    s->error= len;
+                    if(len<0)
+                        s->error= len;
                     break;
                 } else {
                     s->pos += len;
@@ -1309,7 +1308,7 @@ static int dyn_buf_write(void *opaque, uint8_t *buf, int buf_size)
     unsigned new_size, new_allocated_size;
 
     /* reallocate buffer if needed */
-    new_size = (unsigned)d->pos + buf_size;
+    new_size = d->pos + buf_size;
     new_allocated_size = d->allocated_size;
     if (new_size < d->pos || new_size > INT_MAX/2)
         return -1;

@@ -107,30 +107,29 @@ static void scale_coefs (
       }
     } else {
       shift = -shift;
-      mul <<= shift;
       for (i=0; i<len; i+=8) {
 
           temp = src[i] * mul;
           temp1 = src[i+1] * mul;
           temp2 = src[i+2] * mul;
 
-          dst[i] = temp;
+          dst[i] = temp << shift;
           temp3 = src[i+3] * mul;
 
-          dst[i+1] = temp1;
+          dst[i+1] = temp1 << shift;
           temp4 = src[i + 4] * mul;
-          dst[i+2] = temp2;
+          dst[i+2] = temp2 << shift;
 
           temp5 = src[i+5] * mul;
-          dst[i+3] = temp3;
+          dst[i+3] = temp3 << shift;
           temp6 = src[i+6] * mul;
 
-          dst[i+4] = temp4;
+          dst[i+4] = temp4 << shift;
           temp7 = src[i+7] * mul;
 
-          dst[i+5] = temp5;
-          dst[i+6] = temp6;
-          dst[i+7] = temp7;
+          dst[i+5] = temp5 << shift;
+          dst[i+6] = temp6 << shift;
+          dst[i+7] = temp7 << shift;
 
       }
     }
